@@ -7,11 +7,10 @@ use std::f32::consts::PI;
 
 use rayon::iter::{IntoParallelRefMutIterator, ParallelIterator};
 
-const AGENTS_NUM: usize = 2000;
-const NUM_GENERATIONS: usize = 200;
-const TICKS_PER_EVALUATION: usize = 60 * 100; // 100 seconds
+const AGENTS_NUM: usize = 1000;
+const NUM_GENERATIONS: usize = 600;
+const TICKS_PER_EVALUATION: usize = 60 * 10; // 10 seconds
 const TICK_DURATION: f32 = 1.0 / 60.0; // 60 modifications per second
-const GRAVITY: f32 = 1.0;
 
 /// Top-level of the training process 
 pub struct AI {
@@ -65,8 +64,11 @@ impl AI {
         (0..NUM_GENERATIONS).into_iter().for_each(|gen| {
             println!("Testing generation {}...", gen);
             self.evaluate();
-            self.selectmutate();
-        })
+            self.sort();
+            self.next_gen();
+        });
+        self.evaluate();
+        self.sort();
     }
 
     pub fn render_best(&self) {
@@ -123,13 +125,11 @@ impl AI {
 
 
         
-        println!("Best DAC score: {}.\nDisplaying the evaluation...", self.past_agents
-            .iter().last().unwrap()
+        println!("Best DAC score: {}.\nDisplaying the evaluation...", self.agents
             .iter().nth(0).unwrap()
             .score
         );
-        let best_dac = self.past_agents
-            .iter().last().unwrap()
+        let best_dac = self.agents
             .iter().nth(0).unwrap()
             .dac.clone();
         println!("Best DAC network: {:?}", best_dac);
@@ -151,8 +151,9 @@ impl AI {
 
         // Running the visual simulation.
         let opengl = OpenGL::V3_2;
-        let mut window: Window = WindowSettings::new("Pendulum Simulation", [200, 200])
+        let mut window: Window = WindowSettings::new("Pendulum Simulation", [1440, 900])
             .graphics_api(opengl)
+            .fullscreen(false)
             .exit_on_esc(true)
             .samples(8)
             .build()
@@ -191,9 +192,11 @@ impl AI {
         })
     }
 
-    fn selectmutate(&mut self) {
+    fn sort(&mut self) {
         self.agents.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap()); // Bigger scores come before
+    }
 
+    fn next_gen(&mut self) {
         let mut cumulative_sum: Vec<f32> = Vec::with_capacity(AGENTS_NUM);
         let mut total_score = 0.0;
         self.agents.iter()
@@ -202,6 +205,7 @@ impl AI {
                 total_score+=score;
                 cumulative_sum.push(total_score);
             });
+        if total_score == 0.0 { total_score = 0.001 }
         cumulative_sum.iter_mut()
             .for_each(|score| {
                 *score/=total_score;
@@ -251,6 +255,7 @@ impl Agent {
 
     fn evaluate(&mut self) {
         // Run network, Update physics values (cart speed, cart pos, pendulum physics data from new position), then run again, for a number of ticks and a given tick duration.
+        self.score = 0.1;
         self.dac.reordered();
         for _ in 0..TICKS_PER_EVALUATION {
             self.evaluate_step();
@@ -258,39 +263,43 @@ impl Agent {
     }
 
     fn evaluate_step(&mut self) {
-        self.dac.run();
-        self.cart_x_speed = self.dac.nodes[4].val;
-
-        self.update_physics();
-        // Modify network inputs
         self.dac.nodes[0].val = self.cart_x;
         self.dac.nodes[1].val = self.pendulum_angle.cos();
         self.dac.nodes[2].val = self.pendulum_angle.sin();
         self.dac.nodes[3].val = self.pendulum_ang_vel;
 
+        self.dac.run();
+        self.update_physics();
+
+        if self.pendulum_angle.sin() < -0.9 {
+            self.score -= 3.0;
+        }
         if self.pendulum_angle.sin() > 0.9 {
             self.score += 1.0;
+        }
+        if self.cart_x_speed * self.cart_x_speed < 0.01 {
+            self.score += 0.1
+        }
+        if self.cart_x * self.cart_x < 0.01 {
+            self.score += 0.1
         }
 
         self.instant += TICK_DURATION;
     }
 
     fn update_physics(&mut self) {
-        // New angle - Previous angle => ang vel
-        self.cart_x += self.cart_x_speed * TICK_DURATION;
-        if self.cart_x > 3.0 {
-            self.cart_x = 3.0;
-            self.cart_x_speed = 0.0;
-        }
-        else if self.cart_x  < -3.0 {
-            self.cart_x = -3.0;
-            self.cart_x_speed = 0.0;
-        }
+        let new_cart_x = (self.cart_x + self.dac.nodes[4].val * TICK_DURATION).max(-3.0).min(3.0);
+        self.cart_x_speed = (new_cart_x - self.cart_x) / TICK_DURATION;
+        self.cart_x = new_cart_x;
 
-        self.pendulum_ang_vel += 
-            - self.pendulum_angle.cos() * GRAVITY * GRAVITY * TICK_DURATION // Gravity
-            + self.pendulum_angle.sin() * 3.0 * self.cart_x_speed * TICK_DURATION; // Moving cart
-        self.pendulum_angle += self.pendulum_ang_vel * TICK_DURATION;
+        let new_pendulum_angle = self.pendulum_angle +
+            ( self.pendulum_ang_vel
+            + self.pendulum_angle.sin() * self.cart_x_speed * 0.5
+            - self.pendulum_angle.cos() * 1.5
+            ) * TICK_DURATION;
+        self.pendulum_ang_vel = (new_pendulum_angle - self.pendulum_angle) / TICK_DURATION;
+        self.pendulum_angle = new_pendulum_angle;
+
     }
 }
 
@@ -299,18 +308,18 @@ impl DAC {
     fn pezzzas_pendulum() -> Self {
         Self {
             nodes: vec![
-                Box::new(Node::new(0.0, fastrand::f32() - 0.5, identity, vec![], vec![], 0)), // Cart x
-                Box::new(Node::new(0.0, fastrand::f32() - 0.5, identity, vec![], vec![], 0)), // Pendulum x
-                Box::new(Node::new(0.0, fastrand::f32() - 0.5, identity, vec![], vec![], 0)), // Pendulum y
-                Box::new(Node::new(0.0, fastrand::f32() - 0.5, identity, vec![], vec![], 0)), // Angular velocity
+                Box::new(Node::new(0.0, 0.0, identity, vec![], vec![], 0)), // Cart x
+                Box::new(Node::new(0.0, 0.0, identity, vec![], vec![], 0)), // Pendulum x
+                Box::new(Node::new(0.0, 0.0, identity, vec![], vec![], 0)), // Pendulum y
+                Box::new(Node::new(0.0, 0.0, identity, vec![], vec![], 0)), // Angular velocity
 
-                Box::new(Node::new(0.0, fastrand::f32() - 0.5, tanh, vec![], vec![], 1)),
+                Box::new(Node::new(0.0, 0.0, tanh, vec![], vec![], 1)),
             ],
             order: vec![],
         }
     }
 
-    /// Returns a node processing order, such that children are always processed aftertheir parents.
+    /// Sets the node processing order, such that children are always processed aftertheir parents.
     fn reordered(&mut self) {
         // let start = std::time::Instant::now();
 
@@ -320,7 +329,6 @@ impl DAC {
         
         while self.order.len() != len {
             // println!("Starting nodes: {:?}", self.nodes);
-            // println!("Reordered nodes: {:?}", reordered);
             // println!("Active nodes: {:?}", active_nodes);
             let active_nodes_clone = active_nodes.clone();
             self.nodes.iter().enumerate()
@@ -361,15 +369,16 @@ impl DAC {
     fn modified(&self) -> Self {
         let f = fastrand::f32();
         // println!("Modifying");
-        if f < 0.10 && !self.nodes.iter().all(|node| node.children.is_empty() && node.parents.is_empty()) {
+        let has_link = self.nodes.iter().any(|node| !node.children.is_empty());
+        if f < 0.10 && has_link {
             // println!("Update newnode");
             self.newnode_modified()
-        } else if f < 0.30 && self.nodes.iter().any(|parent_node| parent_node.children.len() < self.nodes.iter().filter(|node| node.layer > parent_node.layer).count()) {
-            // println!("Update newconnection");
-            self.newconnection_modified()
-        } else if f < 0.80 && self.nodes.iter().any(|node| !node.children.is_empty()){
+        } else if f < 0.60 && has_link {
             // println!("Update weight");
             self.weight_modified()
+        } else if f < 0.80 && self.nodes.iter().any(|parent_node| parent_node.children.len() < self.nodes.iter().filter(|node| node.layer > parent_node.layer).count()) {
+            // println!("Update newconnection");
+            self.newconnection_modified()
         } else { // Nothing
             self.unmodified()
         }
@@ -438,22 +447,33 @@ impl DAC {
                 .for_each(|node| node.layer += 1);
         }
         
-        new.nodes.push(Box::new(Node::new(0.0, fastrand::f32() - 0.5, relu, vec![connection_parent_i], vec![(connection_child_i, connection_weight)], new_node_layer)));
+        new.nodes.push(Box::new(Node::new(0.0, 0.0, relu, vec![connection_parent_i], vec![(connection_child_i, connection_weight)], new_node_layer)));
         new
     }
 
     fn newconnection_modified(&self) -> Self {
         let mut new = self.clone();
 
-        let node_a_i: usize = fastrand::usize(0..new.nodes.len());
+        let mut node_a_i: usize;
         let node_b_i: usize;
         loop {
-            let b_i = fastrand::usize(0..new.nodes.len());
-            if new.nodes[b_i].layer != new.nodes[node_a_i].layer {
-                node_b_i = b_i;
-                break;
+            node_a_i = fastrand::usize(0..new.nodes.len());
+            let children: Vec<usize> = new.nodes[node_a_i].children.iter().map(|child| child.0).collect();
+            let parents: Vec<usize> = new.nodes[node_a_i].parents.clone();
+            let possible_node_b: Vec<usize> = (0..new.nodes.len())
+                .filter(|index| 
+                    ( new.nodes[*index].layer > new.nodes[node_a_i].layer && !children.contains(index) ) || 
+                    ( new.nodes[*index].layer < new.nodes[node_a_i].layer && !parents.contains(index)  )
+                )
+                .collect();
+            match possible_node_b.is_empty() {
+                true => { continue; }
+                false => {
+                    node_b_i = possible_node_b[fastrand::usize(0..possible_node_b.len())];
+                    break;
+                }
             }
-        }
+        } 
 
         let a_is_child = new.nodes[node_a_i].layer > new.nodes[node_b_i].layer;
         if a_is_child {
@@ -476,7 +496,7 @@ impl DAC {
         let index = fastrand::usize(0..children_count);
         new.nodes.iter_mut()
             .flat_map(|node| node.children.iter_mut())
-            .nth(index).unwrap().1 += fastrand::f32() - 0.5;
+            .nth(index).unwrap().1 += fastrand::f32() * 2.0 - 1.0;
 
         new
     }
@@ -527,7 +547,7 @@ fn main() {
     let mut ai = AI::init();
     ai.train();
     
-    println!("Total: {}", start.elapsed().as_secs_f32()); // Longer esp. with printing operations.
+    println!("Total: {:?}", start.elapsed()); // Longer esp. with printing operations.
     
     ai.render_best();
 }
