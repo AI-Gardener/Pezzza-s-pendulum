@@ -21,15 +21,15 @@ impl Reinforcement for State {
     // // READ-ONLY VARIABLES
 
     fn num_agents() -> usize {
-        1000
+        500
     }
 
     fn num_generations() -> usize {
-        600
+        500
     }
 
     fn ticks_per_evaluation() -> usize {
-        60 * 10
+        60 * 20
     }
 
     fn tick_duration() -> f32 {
@@ -45,6 +45,10 @@ impl Reinforcement for State {
 
             Box::new(Node::new(0.0, 0.0, tanh, vec![], vec![], 1)),     // Cart speed        // Node 4 (output)
         ]
+    }
+
+    fn newnode_activation_f() -> fn(f32) -> f32 {
+        identity
     }
 
 
@@ -77,7 +81,7 @@ impl Reinforcement for State {
 
         let new_pendulum_angle = self.pendulum_angle +
             ( self.pendulum_ang_vel
-            + self.pendulum_angle.sin() * self.cart_x_speed * 0.5
+            + self.pendulum_angle.sin() * self.cart_x_speed * 0.2
             - self.pendulum_angle.cos() * 1.5
             ) * Self::tick_duration();
         self.pendulum_ang_vel = (new_pendulum_angle - self.pendulum_angle) / Self::tick_duration();
@@ -85,17 +89,14 @@ impl Reinforcement for State {
     }
 
     fn update_score(&mut self, score: &mut f32) {
-        if self.pendulum_angle.sin() < -0.9 {
-            *score -= 3.0;
-        }
         if self.pendulum_angle.sin() > 0.9 {
             *score += 1.0;
-        }
-        if self.cart_x_speed * self.cart_x_speed < 0.01 {
-            *score += 0.1
-        }
-        if self.cart_x * self.cart_x < 0.01 {
-            *score += 0.1
+            if self.cart_x.abs() < 0.1 {
+                *score += 1.0;
+            }
+            if self.cart_x_speed.abs() < 0.1 {
+                *score += 0.2;
+            }
         }
     }
 
