@@ -1,12 +1,11 @@
+// TODO Docs
 // //! This project is a Rust implementation of the AI from [a video by "Pezzza's work"](https://www.youtube.com/watch?v=EvV5Qtp_fYg&t=280s), and follows the conceptual outline given there.
 // //! The physics part is highly approximate engineering.
 // //! Run in release mode for better performance.
-// //! This is not really optimized, this is more exploration.
+// //! This is meant to be highly optimized, this is more exploration.
 
 use std::f32::consts::PI;
 use ai_template::*;
-use opengl_graphics::GlGraphics;
-use piston::RenderArgs;
 
 #[derive(Clone)]
 struct State {
@@ -21,15 +20,15 @@ impl Reinforcement for State {
     // // READ-ONLY VARIABLES
 
     fn num_agents() -> usize {
-        500
+        1000
     }
 
     fn num_generations() -> usize {
-        500
+        100
     }
 
     fn ticks_per_evaluation() -> usize {
-        60 * 20
+        60 * 10
     }
 
     fn tick_duration() -> f32 {
@@ -81,8 +80,8 @@ impl Reinforcement for State {
 
         let new_pendulum_angle = self.pendulum_angle +
             ( self.pendulum_ang_vel
-            + self.pendulum_angle.sin() * self.cart_x_speed * 0.2
-            - self.pendulum_angle.cos() * 1.5
+            + self.pendulum_angle.sin() * self.cart_x_speed * 0.1
+            - self.pendulum_angle.cos() * 0.7
             ) * Self::tick_duration();
         self.pendulum_ang_vel = (new_pendulum_angle - self.pendulum_angle) / Self::tick_duration();
         self.pendulum_angle = new_pendulum_angle;
@@ -117,34 +116,28 @@ impl Reinforcement for State {
         }
     }
 
-    fn render(&self, gl: &mut GlGraphics, args: &RenderArgs) {
-        use graphics::*;
+    fn draw_vertices() -> (Vec<InputVertex>, Option<Vec<u32>>) {
+        (
+            vec![
+                InputVertex::new([1.0, 0.0, 0.0, 1.0], [-0.5,  0.5,  0.0], 0),
+                InputVertex::new([0.0, 1.0, 0.0, 1.0], [ 0.0,  0.0,  0.0], 0),
+                InputVertex::new([0.0, 0.0, 1.0, 1.0], [ 0.5,  0.5,  0.0], 0),
+                InputVertex::new([0.0, 0.0, 0.0, 1.0], [ 0.0, -1.0,  0.0], 0),
+            ],
+            Some(vec![
+                0, 1, 2,
+                0, 1, 3,
+                2, 1, 3,
+            ]),
+        )
+    }
 
-        const DARK: [f32; 4] = [0.1, 0.15, 0.3, 1.0];
-        const CART: [f32; 4] = [0.8, 0.6, 0.2, 1.0];
-        const PENDULUM: [f32; 4] = [1.0, 1.0, 1.0, 1.0];
-
-        let cart = rectangle::rectangle_by_corners(-50.0, -5.0, 50.0, 5.0);
-        let pendulum_rod = rectangle::rectangle_by_corners(0.0, -2.5, 90.0, 2.5);
-        let pendulum_ball = rectangle::rectangle_by_corners(90.0, -10.0, 110.0, 10.0);
-        let (x, y) = (args.window_size[0] / 2.0, args.window_size[1] / 2.0);
-
-        gl.draw(args.viewport(), |c, gl| {
-            // Clear the screen.
-            clear(DARK, gl);
-
-            let cart_transform = c
-                .transform
-                .trans(x + (self.cart_x * 100.0) as f64, y);
-            let pendulum_transform: [[f64; 3]; 2] = c
-                .transform
-                .trans(x + (self.cart_x * 100.0) as f64, y)
-                .rot_rad(-self.pendulum_angle as f64);
-
-            rectangle(CART, cart, cart_transform, gl);
-            rectangle(PENDULUM, pendulum_rod, pendulum_transform, gl);
-            ellipse(PENDULUM, pendulum_ball, pendulum_transform, gl);
-        });
+    fn draw_transformations(&self, matrices: &mut [Mat4; 128]) {
+        matrices[0] = Mat4::translate(self.cart_x, 0.0, 0.0);
+    }
+    
+    fn draw_view_present_mode() -> PresentMode {
+        PresentMode::Immediate
     }
 }
 
@@ -155,6 +148,7 @@ fn main() {
     ai.train();
     
     println!("Total: {:?}", start.elapsed()); // Longer esp. with printing operations.
-    
-    ai.render_best();
+
+    let mut vk: Vk<State> = Vk::init();
+    vk.view();
 }
