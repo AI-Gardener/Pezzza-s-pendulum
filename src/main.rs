@@ -6,6 +6,7 @@
 
 use std::f32::consts::PI;
 use ai_template::*;
+use fastrand::f32;
 
 #[derive(Clone)]
 struct State {
@@ -117,27 +118,45 @@ impl Reinforcement for State {
     }
 
     fn draw_vertices() -> (Vec<InputVertex>, Option<Vec<u32>>) {
+        use tobj;
+
+        let cart = tobj::load_obj("./scene/cart.obj", &tobj::GPU_LOAD_OPTIONS);
+        assert!(cart.is_ok());
+        
+        let (cart_models, cart_materials) = cart.expect("Failed to load OBJ file");
+        
+        // Materials might report a separate loading error if the MTL file wasn't found.
+        // If you don't need the materials, you can generate a default here and use that
+        // instead.
+        let cart_materials = cart_materials.expect("Failed to load MTL file");
+        
+        println!("# of models: {}", cart_models.len());
+        println!("# of materials: {}", cart_materials.len());
+        
+        let cart_indices = cart_models.iter()
+            .flat_map(|model| model.mesh.indices.clone())
+            .collect::<Vec<u32>>();
+        let cart_vertices = cart_models.iter()
+            .flat_map(|model| model.mesh.positions.chunks_exact(3).collect::<Vec<&[f32]>>())
+            .map(|chunk| InputVertex::new(
+                [f32(), 1.0, f32(), 1.0],
+                [chunk[0] * 5.0, chunk[2] * 5.0, 0.0],
+                0
+            ))
+            .collect::<Vec<InputVertex>>();
         (
-            vec![
-                InputVertex::new([1.0, 0.0, 0.0, 1.0], [-0.5,  0.5,  0.0], 0),
-                InputVertex::new([0.0, 1.0, 0.0, 1.0], [ 0.0,  0.0,  0.0], 0),
-                InputVertex::new([0.0, 0.0, 1.0, 1.0], [ 0.5,  0.5,  0.0], 0),
-                InputVertex::new([0.0, 0.0, 0.0, 1.0], [ 0.0, -1.0,  0.0], 0),
-            ],
-            Some(vec![
-                0, 1, 2,
-                0, 1, 3,
-                2, 1, 3,
-            ]),
+            cart_vertices,
+            Some(cart_indices)
         )
     }
 
-    fn draw_transformations(&self, matrices: &mut [Mat4; 128]) {
-        matrices[0] = Mat4::translate(self.cart_x, 0.0, 0.0);
+    fn draw_transformations(&self, matrices: &mut [Mat4; 32]) {
+        matrices[0] = Mat4::translate(0.5, 0.0, 0.0);
+        matrices[1] = Mat4::translate(0.0, 0.5, 0.0);
     }
     
     fn draw_view_present_mode() -> PresentMode {
-        PresentMode::Immediate
+        PresentMode::Fifo
     }
 }
 
