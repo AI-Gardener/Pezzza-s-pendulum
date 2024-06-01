@@ -25,7 +25,7 @@ impl Reinforcement for State {
     }
 
     fn num_generations() -> usize {
-        1000
+        100
     }
 
     fn ticks_per_evaluation() -> usize {
@@ -128,10 +128,9 @@ impl Reinforcement for State {
     }
 
     fn draw_transformations(&self, matrices: &mut [Mat4; 32]) {
-        println!("Cart x: {}", self.cart_x);
-        matrices[0] = Mat4::translate(self.cart_x / 4.0, 0.0, 0.0);
-        matrices[1] = Mat4::rotate_z(self.pendulum_angle);
-        matrices[1].mult(Mat4::translate(self.cart_x / 4.0, 0.0, 0.0));
+        matrices[1] = Mat4::translate(self.cart_x / 4.0, 0.0, 0.0);
+        matrices[2] = Mat4::rotate_z(self.pendulum_angle);
+        matrices[2].mult(Mat4::translate(self.cart_x / 4.0, 0.0, 0.0));
     }
     
     fn draw_view_present_mode() -> PresentMode {
@@ -144,11 +143,19 @@ fn main() {
 
     let mut ai: AI<State> = AI::init();
     ai.train();
+    ai.check();
     
     println!("Total: {:?}", start.elapsed()); // Longer esp. with printing operations.
 
     let mut vk: Vk = Vk::init::<State>();
     vk.view_agent(ai.best_agent());
+    vk.save_agent(
+        ai.best_agent(),
+        3840,
+        2160,
+        600,
+        1.0 / 60.0
+    );
 }
 
 // Code from a vulkanalia tutorial: https://github.com/KyleMayes/vulkanalia/blob/master/tutorial/src/27_model_loading.rs
@@ -170,9 +177,35 @@ fn load_model<P: AsRef<Path>>(path: P) -> (Vec<InputVertex>, Vec<u32>) {
 
     // Vertices / Indices
 
-    let mut unique_vertices = HashMap::new();
+    let mut unique_vertices: HashMap<InputVertex, u32> = HashMap::new();
 
     let (mut vertices, mut indices): (Vec<InputVertex>, Vec<u32>) = (Vec::new(), Vec::new());
+    vertices.extend([
+        InputVertex::new(
+            [0.05, 0.0, 0.1, 1.0],
+            [-2.0, -1.0, 0.5],
+            0
+        ),
+        InputVertex::new(
+            [0.05, 0.0, 0.1, 1.0],
+            [-2.0, 1.0, 0.5],
+            0
+        ),
+        InputVertex::new(
+            [0.05, 0.0, 0.1, 1.0],
+            [2.0, -1.0, 0.5],
+            0
+        ),
+        InputVertex::new(
+            [0.05, 0.0, 0.1, 1.0],
+            [2.0, 1.0, 0.5],
+            0
+        ),
+    ]);
+    indices.extend([
+        0, 1, 2,
+        3, 2, 1,
+    ]);
 
     let mut z: f32 = -0.1;
     for model in &models {
@@ -180,17 +213,17 @@ fn load_model<P: AsRef<Path>>(path: P) -> (Vec<InputVertex>, Vec<u32>) {
         for index in &model.mesh.indices {
             let pos_offset = (3 * index) as usize;
 
-            let vertex: InputVertex = if -model.mesh.positions[pos_offset + 2] < 0.1 {
+            let vertex: InputVertex = 
+            if -model.mesh.positions[pos_offset + 2] < 0.1 {
                 InputVertex::new(
-                    [(f32() + 4.0) / 8.0, 0.0, (f32() + 4.0) / 8.0, 1.0],
+                    [(f32() + 4.0) / 8.0, (f32() + 1.0) / 8.0, (f32() + 1.0) / 8.0, 1.0],
                     [
                         (model.mesh.positions[pos_offset]) / 2.0,
                         (- model.mesh.positions[pos_offset + 2]) / 2.0,
                         z,
                     ],
-                    0,
+                    1,
                 )
-                    
             } else if -model.mesh.positions[pos_offset + 2] < 0.3 {
                 InputVertex::new(
                     [0.0, (f32() + 4.0) / 8.0, 0.0, 1.0],
@@ -199,9 +232,8 @@ fn load_model<P: AsRef<Path>>(path: P) -> (Vec<InputVertex>, Vec<u32>) {
                         (- model.mesh.positions[pos_offset + 2] - 0.2) / 2.0,
                         z,
                     ],
-                    1,
+                    2,
                 )
-                    
             } else {
                 InputVertex::new(
                     [1.0, 1.0, 1.0, 1.0],
@@ -210,18 +242,18 @@ fn load_model<P: AsRef<Path>>(path: P) -> (Vec<InputVertex>, Vec<u32>) {
                         (- model.mesh.positions[pos_offset + 2]) / 2.0,
                         z,
                     ],
-                    2,
+                    3,
                 )
                     
             };
 
             if let Some(index) = unique_vertices.get(&vertex) {
-                indices.push(*index as u32);
+                indices.push(*index);
             } else {
-                let index = vertices.len();
+                let index = vertices.len() as u32;
                 unique_vertices.insert(vertex, index);
                 vertices.push(vertex);
-                indices.push(index as u32);
+                indices.push(index);
             }
         }
     }
