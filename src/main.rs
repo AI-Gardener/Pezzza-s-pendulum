@@ -38,17 +38,17 @@ impl Reinforcement for State {
 
     fn start_nodes() -> Vec<Box<Node>> {
         vec![
-            Box::new(Node::new(0.0, 0.0, identity, vec![], vec![], 0)), // Cart x            // Node 0 (input)
-            Box::new(Node::new(0.0, 0.0, identity, vec![], vec![], 0)), // Pendulum x        // Node 1 (input)
-            Box::new(Node::new(0.0, 0.0, identity, vec![], vec![], 0)), // Pendulum y        // Node 2 (input)
-            Box::new(Node::new(0.0, 0.0, identity, vec![], vec![], 0)), // Angular velocity  // Node 3 (input)
+            Box::new(Node::new(0.0, ActivationFunction::Identity, vec![], vec![], 0)), // Cart x            // Node 0 (input)I
+            Box::new(Node::new(0.0, ActivationFunction::Identity, vec![], vec![], 0)), // Pendulum x        // Node 1 (input)I
+            Box::new(Node::new(0.0, ActivationFunction::Identity, vec![], vec![], 0)), // Pendulum y        // Node 2 (input)I
+            Box::new(Node::new(0.0, ActivationFunction::Identity, vec![], vec![], 0)), // Angular velocity  // Node 3 (input)I
 
-            Box::new(Node::new(0.0, 0.0, tanh, vec![], vec![], 1)),     // Cart speed        // Node 4 (output)
+            Box::new(Node::new(0.0, ActivationFunction::Tanh, vec![], vec![], 1)),     // Cart speed        // Node 4 (output)I
         ]
     }
 
-    fn newnode_activation_f() -> fn(f32) -> f32 {
-        identity
+    fn newnode_activation_function() -> ActivationFunction {
+        ActivationFunction::Identity
     }
 
 
@@ -120,7 +120,7 @@ impl Reinforcement for State {
     }
 
     fn draw_vertices() -> (Vec<InputVertex>, Option<Vec<u32>>) {
-        let (vertices, indices) = load_model("./scene/shapes.obj");
+        let (vertices, indices) = load_models("./scene/shapes.obj");
         (
             vertices,
             Some(indices)
@@ -139,27 +139,41 @@ impl Reinforcement for State {
 }
 
 fn main() {
-    let start = std::time::Instant::now();
-
+    // Train AI using Reinforcement Learning
     let mut ai: AI<State> = AI::init();
     ai.train();
     ai.check();
-    
-    println!("Total: {:?}", start.elapsed()); // Longer esp. with printing operations.
+
 
     let mut vk: Vk = Vk::init::<State>();
-    vk.view_agent(ai.best_agent());
+
+    // Choose agents
+    let mut a50: Agent<State> = ai.best_agent_at(50);
+    a50.export_network("50.json");
+    let mut a50v2: Agent<State> = Agent::import_network("50.json");
+    let mut a100: Agent<State> = ai.best_agent_latest();
+
+    // Display agents
+    vk.view_agent(&mut a50);
+    vk.view_agent(&mut a50v2);
+    vk.view_agent(&mut a100);
+
+    // Render best agent
     vk.save_agent(
-        ai.best_agent(),
+        &mut a100,
         3840,
         2160,
         600,
         1.0 / 60.0
     );
+
+    // let start = std::time::Instant::now();
+    // println!("Total: {:?}", start.elapsed()); // Longer esp. with printing operations.
 }
 
 // Code from a vulkanalia tutorial: https://github.com/KyleMayes/vulkanalia/blob/master/tutorial/src/27_model_loading.rs
-fn load_model<P: AsRef<Path>>(path: P) -> (Vec<InputVertex>, Vec<u32>) {
+/// Loads the models from an OBJ file as one mesh.
+pub fn load_models<P: AsRef<Path>>(path: P) -> (Vec<InputVertex>, Vec<u32>) {
     // Model
 
     let mut reader = BufReader::new(File::open(path).unwrap());

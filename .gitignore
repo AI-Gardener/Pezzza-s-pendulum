@@ -15,6 +15,7 @@ Cargo.lock
 
 
 # Output files
-**.mp4
-**.png
 output/
+**.json
+**.png
+**.mp4
